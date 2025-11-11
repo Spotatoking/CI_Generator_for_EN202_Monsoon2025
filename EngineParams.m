@@ -84,113 +84,10 @@ Engine.combust.afr = 12; % this is the air fuel ratio
 %Combustion formulae
 m_fuel = Engine.fuel.rho * Engine.V_max;
 Engine.combust.E_comb = Engine.combust.eta * m_fuel * Engine.fuel.CV *(1/(Engine.combust.afr + 1));
-%% 4. OPERATING CONDITIONS
+%% OPERATING CONDITIONS
 % ========================================================================
+Engine.rotation = 1000;  % rad/sec
 
-% Engine speed in RPM (revolutions per minute)
-Engine.RPM = 2000;  % 2000 RPM
-
-% Engine speed in rad/s (used in simulations)
-Engine.omega_min = (Engine.RPM * 2 * pi) / 60;  % rad/s
-
-% Mean piston speed in m/s (useful for friction calculations)
-Engine.V_piston_mean = 2 * Engine.Stroke * (Engine.RPM / 60);  % m/s
-
-%% 5. FRICTION AND DAMPING PARAMETERS
-% ========================================================================
-
-% Friction coefficient between piston and cylinder wall (approximate)
-Engine.mu_friction = 0.05;  % dimensionless (5% of normal force)
-
-% Viscous damping coefficient for crankshaft bearings in N*m*s/rad
-Engine.c_damping = 0.001;  % Small damping for smooth rotation
-
-% Coulomb friction in crankshaft bearings in N*m
-Engine.T_friction = 0.010;  % 0.01 N*m typical
-
-%% 6. ATMOSPHERIC AND REFERENCE CONDITIONS
-% ========================================================================
-
-% Atmospheric pressure in Pa (reference pressure)
-Engine.p_atm = 101325;  % 1 atm at sea level
-
-% Reference temperature in K
-Engine.T_ref = 298.15;  % 25 deg C
-
-%% 7. PRESSURE WAVEFORM PARAMETERS (FOR LOOKUP TABLE INPUT)
-% ========================================================================
-% Phase 2 (Combustion) will generate these; Phase 1 uses external data
-
-% Maximum cylinder pressure (peak combustion pressure) in Pa
-Engine.p_max = 6.0e6;  % 60 bar (typical peak SI engine pressure)
-
-% Number of crank angle points in pressure lookup table
-Engine.n_pressure_points = 360;  % 1 degree per point
-
-% Crank angles for one complete cycle (0-720 deg for 4-stroke)
-Engine.theta_cycle = 0:(360/Engine.n_pressure_points):720;
-
-%% 8. KINEMATICS: PISTON POSITION, VELOCITY, ACCELERATION FUNCTIONS
-% ========================================================================
-% These are analytical expressions for slider-crank kinematics
-% Crank angle theta is in radians
-
-% Pre-calculate frequently used parameters
-r = Engine.r_fwheel;        % crank radius
-l = Engine.L_rod;          % connecting rod length
-n = Engine.rod_fwheel_ratio; % l/r ratio
-
-% Generate crank angle array for one full cycle (0 to 2*pi rad)
-theta_full = linspace(0, 2*pi, 720);
-
-% Piston displacement as function of crank angle (in meters, from BDC)
-% x(theta) = r * (1 - cos(theta)) + l - sqrt(l^2 - r^2*sin^2(theta))
-Engine.x_piston = @(theta) r * (1 - cos(theta)) + l - sqrt(l.^2 - r^2 * sin(theta).^2);
-
-% Piston velocity as function of crank angle (in m per degree, then m/s)
-% First derivative of x with respect to theta
-% v(theta) = r*omega*[sin(theta) + r*sin(theta)*cos(theta)/sqrt(l^2-r^2*sin^2(theta))]
-Engine.v_piston = @(theta, omega) r * omega * ...
-    (sin(theta) + (r * sin(theta) .* cos(theta)) ./ sqrt(l^2 - r^2 * sin(theta).^2));
-
-% Piston acceleration as function of crank angle
-% Second derivative of x with respect to theta
-% a(theta) = r*omega^2*[cos(theta) + (term1 + term2)]
-% (Complex expression with squared velocities)
-Engine.a_piston = @(theta, omega) r * omega^2 * ...
-    (cos(theta) + (r * (cos(theta).^2 - sin(theta).^2)) ./ ...
-    sqrt(l^2 - r^2 * sin(theta).^2) - ...
-    (r^2 * sin(theta).^2 .* cos(theta)) ./ (l^2 - r^2 * sin(theta).^2).^(3/2));
-
-% Cylinder volume as function of crank angle
-% V(theta) = V_clearance + A_piston * x(theta)
-Engine.V_cylinder = @(theta) Engine.V_clearance + Engine.A_piston * Engine.x_piston(theta);
-
-%% 9. TORQUE TRANSMISSION: PISTON FORCE TO CRANKSHAFT TORQUE
-% ========================================================================
-% Gas pressure P acts on piston area -> force F
-% Force F is transmitted through connecting rod -> torque on crankshaft
-
-% Mechanical advantage ratio (varies with crank angle)
-% dV/dtheta = A_piston * dx/dtheta
-% Torque = Force * (dV/dtheta) / A_piston  [for mechanical transmission]
-% OR using kinematic chain:
-% T_crank = F_piston * r * sin(theta) / (mechanical efficiency factor)
-
-% Torque transmission function
-% T_crank(theta, P) = P * A_piston * r * sin(theta) / 
-%                     sqrt(l^2 - r^2*sin^2(theta))
-Engine.torque_from_pressure = @(theta, P) ...
-    P * Engine.A_piston * r * sin(theta) ./ sqrt(l^2 - r^2 * sin(theta).^2);
-
-%% 10. INERTIA TORQUE (Dynamic effect of accelerating piston mass)
-% ========================================================================
-% Inertial torque opposes motion; essential for accurate dynamics
-
-% T_inertia = -m_eq * a_piston * r * sin(theta) / sqrt(...)
-Engine.inertia_torque = @(theta, omega) ...
-    -Engine.m_piston_eq * Engine.a_piston(theta, omega) * r * sin(theta) ./ ...
-    sqrt(l^2 - r^2 * sin(theta).^2);
 %% VERIFICATION OF GRASHOF CONDITION (4-Bar Linkage Analysis)
 % ========================================================================
 % For slider-crank mechanism: Check if rod_crank_ratio > 1 (always true)
@@ -203,19 +100,6 @@ if grashof_check > 1
 else
     warning('Grashof Check: FAILED - Invalid linkage ratio!');
 end
-
-%% 13. KINEMATIC ANALYSIS OUTPUTS (Pre-calculated)
-% ========================================================================
-% Calculate and store kinematic variables for one complete 4-stroke cycle
-
-theta_analysis = linspace(0, 4*pi, 1440);  % 0.25 deg resolution for 4-stroke
-
-Engine.analysis.theta = theta_analysis;
-Engine.analysis.x_piston = Engine.x_piston(theta_analysis);
-Engine.analysis.v_piston = Engine.v_piston(theta_analysis, Engine.omega_min);
-Engine.analysis.a_piston = Engine.a_piston(theta_analysis, Engine.omega_min);
-Engine.analysis.V_cylinder = Engine.V_cylinder(theta_analysis);
-
 %% PARAMETER MASKS
 E_comb    = Engine.combust.E_comb;
 V_max     = Engine.V_max;
