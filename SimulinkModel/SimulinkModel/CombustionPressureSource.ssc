@@ -1,0 +1,22 @@
+component CombustionPressureSource
+    nodes
+        P = foundation.mechanical.translational.translational
+        C = foundation.mechanical.translational.translational
+    end
+
+    parameters
+        A={0.01, 'm^2'};
+    end
+    inputs
+          p_cyl= {0, 'Pa'};
+    end
+    variables
+        f = {0, 'N'};
+    end
+    branches
+        f : P.f -> C.f;
+    end
+    equations
+        f == (-1)*p_cyl *A;
+    end
+end
